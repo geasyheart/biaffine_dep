@@ -3,6 +3,7 @@
 import torch
 from torch import nn
 from torch.nn.utils.rnn import pad_sequence
+from transformers import AlbertForMaskedLM, BertTokenizer
 
 from src.model.scalar_mix import ScalarMix
 
@@ -42,9 +43,14 @@ class TransformerEmbedding(nn.Module):
                  requires_grad=True):
         super().__init__()
 
-        from transformers import AutoConfig, AutoModel, AutoTokenizer
-        self.transformer = AutoModel.from_pretrained(model, config=AutoConfig.from_pretrained(model,
-                                                                                              output_hidden_states=True))
+        from transformers import AutoConfig
+        self.transformer = AlbertForMaskedLM.from_pretrained(
+            model,
+            config=AutoConfig.from_pretrained(
+                model,
+                output_hidden_states=True
+            )
+        )
 
         self.transformer = self.transformer.requires_grad_(requires_grad)
 
@@ -59,7 +65,7 @@ class TransformerEmbedding(nn.Module):
         self.requires_grad = requires_grad
         self.max_len = int(max(0, self.transformer.config.max_position_embeddings) or 1e12) - 2
 
-        self.tokenizer = AutoTokenizer.from_pretrained(model)
+        self.tokenizer = BertTokenizer.from_pretrained(model)
 
         self.scalar_mix = ScalarMix(self.n_layers, dropout)
         self.projection = nn.Linear(self.hidden_size, self.n_out, False) if self.hidden_size != n_out else nn.Identity()
@@ -99,9 +105,10 @@ class TransformerEmbedding(nn.Module):
         for i in range(self.stride,
                        (subwords.shape[1] - self.max_len + self.stride - 1) // self.stride * self.stride + 1,
                        self.stride):
-            part = \
-            self.transformer(subwords[:, i:i + self.max_len], attention_mask=bert_mask[:, i:i + self.max_len].float())[
-                -1]
+            part = self.transformer(
+                subwords[:, i:i + self.max_len],
+                attention_mask=bert_mask[:, i:i + self.max_len].float()
+            )[-1]
             bert = torch.cat((bert, self.scalar_mix(part[-self.n_layers:])[:, self.max_len - self.stride:]), 1)
 
         # [batch_size, seq_len]

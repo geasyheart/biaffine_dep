@@ -10,7 +10,7 @@ import numpy as np
 import torch
 from torch.optim import AdamW
 from tqdm import tqdm
-from transformers import AutoTokenizer, get_linear_schedule_with_warmup
+from transformers import AutoTokenizer, get_linear_schedule_with_warmup, BertTokenizer
 
 from src.config import MODEL_PATH
 from src.metrics import Metrics
@@ -92,7 +92,7 @@ class BiaffineTransformerDep(object):
     def get_transformer(self, transformer: str):
         if self.tokenizer:
             return self.tokenizer
-        tokenizer = AutoTokenizer.from_pretrained(transformer)
+        tokenizer = BertTokenizer.from_pretrained(transformer)
         self.tokenizer = tokenizer
         return tokenizer
 
@@ -123,7 +123,7 @@ class BiaffineTransformerDep(object):
                 logger.info(f'Epoch {epoch} save min loss {total_loss} model')
                 self.save_weights(save_path=os.path.join(MODEL_PATH, 'min_loss.pt'))
 
-            precision, recall, f1 = self.evaluate_dataloader(dev )
+            precision, recall, f1 = self.evaluate_dataloader(dev)
             if f1 > max_f1:
                 logger.info(f'Epoch {epoch} save max f1 {f1} model')
                 self.save_weights(save_path=os.path.join(MODEL_PATH, 'max_f1.pt'))
@@ -139,7 +139,6 @@ class BiaffineTransformerDep(object):
             loss.backward()
             total_loss += loss.item()
             self.step(optimizer=optimizer, scheduler=scheduler)
-            del loss
         return total_loss
 
     def compute_loss(self, y_pred, y_true, criterion):

@@ -16,18 +16,18 @@ class Metrics(object):
 
     def step(self, y_pred, y_true):
         self.steps += 1
-
+        #
         mask = y_true.not_equal(0)
         mask[:, 0, 0] = False
-        y_true *= mask
-        y_pred *= mask
 
-        y_preds = y_pred.argmax(-1).view(-1).to('cpu')
-        y_trues = y_true.view(-1).to('cpu')
+        y_pred = y_pred.argmax(-1) * mask
 
-        precision = precision_score(y_trues, y_preds, average='macro', zero_division=0, labels=ALL_LABELS)
-        recall = recall_score(y_trues, y_preds, average='macro', zero_division=0, labels=ALL_LABELS)
-        f1 = f1_score(y_trues, y_preds, average='macro', zero_division=0, labels=ALL_LABELS)
+        y_pred = y_pred.view(-1).to('cpu')
+        y_true = y_true.view(-1).to('cpu')
+
+        precision = precision_score(y_true, y_pred, average='macro', zero_division=0, labels=ALL_LABELS)
+        recall = recall_score(y_true, y_pred, average='macro', zero_division=0, labels=ALL_LABELS)
+        f1 = f1_score(y_true, y_pred, average='macro', zero_division=0, labels=ALL_LABELS)
 
         self.precision += precision
         self.recall += recall
