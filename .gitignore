@@ -1,0 +1,5 @@
+__pycache__/
+.idea/
+*.py[c|o]
+*.log
+*.pt
