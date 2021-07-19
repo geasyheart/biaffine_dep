@@ -121,10 +121,12 @@ class BiaffineTransformerDep(object):
             total_loss = self.fit_dataloader(train=train, criterion=criterion, optimizer=optimizer, scheduler=scheduler)
             if total_loss < min_loss:
                 logger.info(f'Epoch {epoch} save min loss {total_loss} model')
+                min_loss = total_loss
                 self.save_weights(save_path=os.path.join(MODEL_PATH, 'min_loss.pt'))
 
             precision, recall, f1 = self.evaluate_dataloader(dev)
             if f1 > max_f1:
+                max_f1 = f1
                 logger.info(f'Epoch {epoch} save max f1 {f1} model')
                 self.save_weights(save_path=os.path.join(MODEL_PATH, 'max_f1.pt'))
 
