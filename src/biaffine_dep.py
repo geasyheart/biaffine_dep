@@ -4,7 +4,7 @@ import math
 import os
 import random
 from collections import defaultdict
-from typing import Optional
+from typing import Optional, Union
 
 import numpy as np
 import torch
@@ -36,44 +36,38 @@ class BiaffineTransformerDep(object):
         return torch.nn.CrossEntropyLoss(reduction='none')
 
     def build_optimizer(
-            self, transformer_lr, transformer_weight_decay,
-            num_warmup_steps, num_training_steps,
-            pretrained: torch.nn.Module,
+            self,
+            warmup_steps: Union[float, int],
+            num_training_steps: int,
             lr=1e-5, weight_decay=0.01,
-            no_decay=('bias', 'LayerNorm.bias', 'LayerNorm.weight'),
-
     ):
-        if transformer_lr is None:
-            transformer_lr = lr
-        if transformer_weight_decay is None:
-            transformer_weight_decay = weight_decay
-        params = defaultdict(lambda: defaultdict(list))
-        pretrained = set(pretrained.parameters())
-        if isinstance(no_decay, tuple):
-            def no_decay_fn(name):
-                return any(nd in name for nd in no_decay)
-        else:
-            assert callable(no_decay), 'no_decay has to be callable or a tuple of str'
-            no_decay_fn = no_decay
-        for n, p in self.model.named_parameters():
-            is_pretrained = 'pretrained' if p in pretrained else 'non_pretrained'
-            is_no_decay = 'no_decay' if no_decay_fn(n) else 'decay'
-            params[is_pretrained][is_no_decay].append(p)
-
-        grouped_parameters = [
-            {'params': params['pretrained']['decay'], 'weight_decay': transformer_weight_decay, 'lr': transformer_lr},
-            {'params': params['pretrained']['no_decay'], 'weight_decay': 0.0, 'lr': transformer_lr},
-            {'params': params['non_pretrained']['decay'], 'weight_decay': weight_decay, 'lr': lr},
-            {'params': params['non_pretrained']['no_decay'], 'weight_decay': 0.0, 'lr': lr},
+        """
+        https://github.com/huggingface/transformers/blob/7b75aa9fa55bee577e2c7403301ed31103125a35/src/transformers/trainer.py#L232
+        :param warmup_steps:
+        :param num_training_steps:
+        :param lr:
+        :param weight_decay:
+        :return:
+        """
+        if isinstance(warmup_steps, float):
+            assert 0 < warmup_steps < 1
+            warmup_steps = int(num_training_steps * warmup_steps)
+        # Prepare optimizer and schedule (linear warmup and decay)
+        no_decay = ["bias", "LayerNorm.weight"]
+        optimizer_grouped_parameters = [
+            {
+                "params": [p for n, p in self.model.named_parameters() if not any(nd in n for nd in no_decay)],
+                "weight_decay": weight_decay,
+            },
+            {
+                "params": [p for n, p in self.model.named_parameters() if any(nd in n for nd in no_decay)],
+                "weight_decay": 0.0,
+            },
         ]
-
-        optimizer = AdamW(grouped_parameters, lr=lr, weight_decay=weight_decay, eps=1e-8)
-
-        if num_warmup_steps < 1:
-            num_warmup_steps = num_warmup_steps * num_training_steps
-
-        scheduler = get_linear_schedule_with_warmup(optimizer=optimizer, num_warmup_steps=num_warmup_steps,
-                                                    num_training_steps=num_training_steps)
+        optimizer = AdamW(optimizer_grouped_parameters, lr=lr)
+        scheduler = get_linear_schedule_with_warmup(
+            optimizer, num_warmup_steps=warmup_steps, num_training_steps=num_training_steps
+        )
         return optimizer, scheduler
 
     @staticmethod
@@ -103,13 +97,13 @@ class BiaffineTransformerDep(object):
         train_dataloader = self.build_dataloader(file=train, shuffle=True)
         dev_dataloader = self.build_dataloader(file=dev, shuffle=False)
 
-        model = self.build_model(transformer=transformer, n_labels=len(get_labels()) + 1)
+        self.build_model(transformer=transformer, n_labels=len(get_labels()) + 1)
 
         criterion = self.build_criterion()
 
         optimizer, scheduler = self.build_optimizer(
-            transformer_lr=lr, transformer_weight_decay=None, num_warmup_steps=0.1,
-            num_training_steps=len(train_dataloader) * epoch, pretrained=model.encoder
+            warmup_steps=0.33, num_training_steps=len(train_dataloader) * epoch,
+            lr=lr
         )
         return self.fit_loop(train_dataloader, dev_dataloader, epoch=epoch, criterion=criterion, optimizer=optimizer,
                              scheduler=scheduler)
@@ -175,3 +169,19 @@ class BiaffineTransformerDep(object):
 
     def load_weights(self, save_path):
         self.model.load_state_dict(torch.load(save_path))
+
+    @torch.no_grad()
+    def predict(self, test, transformer: str, model_path: str):
+        self.get_transformer(transformer=transformer)
+        if self.model is None:
+            self.build_model(transformer=transformer, n_labels=len(get_labels()) + 1)
+            self.load_weights(save_path=model_path)
+            self.model.eval()
+
+        test_dataloader = self.build_dataloader(file=test, shuffle=False, batch_size=1)
+
+        for batch in test_dataloader:
+            subwords, label_mask = batch
+            y_pred = self.model(subwords=subwords)
+            print('here')
+
