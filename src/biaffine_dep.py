@@ -8,6 +8,7 @@ from typing import Optional, Union
 
 import numpy as np
 import torch
+from torch import nn
 from torch.optim import AdamW
 from tqdm import tqdm
 from transformers import AutoTokenizer, get_linear_schedule_with_warmup, BertTokenizer
@@ -29,6 +30,8 @@ class BiaffineTransformerDep(object):
     def build_model(self, transformer: str, hidden_size=500, n_labels: int = None):
         model = BiaffineDepModel(transformer=transformer, hidden_size=hidden_size, n_labels=n_labels)
         self.model = model
+        if torch.cuda.device_count() > 1:
+            self.model = nn.DataParallel(self.model)
         self.model.to(self.device)
         return model
 
@@ -165,7 +168,10 @@ class BiaffineTransformerDep(object):
         return metrics.summary()
 
     def save_weights(self, save_path):
-        torch.save(self.model.state_dict(), save_path)
+        if torch.cuda.device_count() <= 1:
+            torch.save(self.model.state_dict(), save_path)
+        else:
+            torch.save(self.model.module.state_dict(), save_path)
 
     def load_weights(self, save_path):
         self.model.load_state_dict(torch.load(save_path))
