@@ -102,7 +102,7 @@ class BiaffineTransformerDep(object):
         criterion = self.build_criterion()
 
         optimizer, scheduler = self.build_optimizer(
-            warmup_steps=0.33, num_training_steps=len(train_dataloader) * epoch,
+            warmup_steps=0.1, num_training_steps=len(train_dataloader) * epoch,
             lr=lr
         )
         return self.fit_loop(train_dataloader, dev_dataloader, epoch=epoch, criterion=criterion, optimizer=optimizer,
