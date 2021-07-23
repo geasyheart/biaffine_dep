@@ -93,12 +93,12 @@ class BiaffineTransformerDep(object):
         self.tokenizer = tokenizer
         return tokenizer
 
-    def fit(self, train, dev, transformer: str, epoch: int = 1000, lr=1e-5):
+    def fit(self, train, dev, transformer: str, epoch: int = 1000, lr=1e-5, batch_size=64):
         self.set_seed()
 
         self.get_transformer(transformer=transformer)
-        train_dataloader = self.build_dataloader(file=train, shuffle=True)
-        dev_dataloader = self.build_dataloader(file=dev, shuffle=False)
+        train_dataloader = self.build_dataloader(file=train, shuffle=True, batch_size=batch_size)
+        dev_dataloader = self.build_dataloader(file=dev, shuffle=False, batch_size=batch_size)
 
         self.build_model(transformer=transformer, n_labels=len(get_labels()) + 1)
 
@@ -168,13 +168,16 @@ class BiaffineTransformerDep(object):
         return metrics.summary()
 
     def save_weights(self, save_path):
-        if torch.cuda.device_count() <= 1:
+        if not isinstance(self.model, nn.DataParallel):
             torch.save(self.model.state_dict(), save_path)
         else:
             torch.save(self.model.module.state_dict(), save_path)
 
     def load_weights(self, save_path):
-        self.model.load_state_dict(torch.load(save_path))
+        if not isinstance(self.model, nn.DataParallel):
+            self.model.load_state_dict(torch.load(save_path))
+        else:
+            self.model.module.load_state_dict(torch.load(save_path))
 
     @torch.no_grad()
     def predict(self, test, transformer: str, model_path: str):
