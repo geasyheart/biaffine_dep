@@ -95,12 +95,14 @@ class DepDataSet(Dataset):
         arc_dep = [sent['DEPREL'][0], *sent['DEPREL']]
         arc_dep_ids = [self.label_map[i] for i in arc_dep]
         # FIXME: len(arc_sent)超过bert限制长度没限制
-        matrix = torch.zeros(len(arc_sent), len(arc_sent))
+        sen_len = len(arc_sent)
+        matrix = torch.zeros(sen_len, sen_len)
 
         for cur_index, target_index in enumerate(arc_head):
             matrix[cur_index, target_index] = arc_dep_ids[cur_index]
-
-        return arc_sent, matrix
+        mask = torch.zeros(sen_len, sen_len)
+        mask[1:, 1:] = 1  # ignore root
+        return arc_sent, matrix, mask
 
     def __len__(self):
         return len(self.data)
@@ -108,15 +110,21 @@ class DepDataSet(Dataset):
     def collate_fn(self, batch):
         text_embed = encoder_texts([i[0] for i in batch], tokenizer=self.tokenizer)
         label_embed = [i[1] for i in batch]
+        mask_embed = [i[2] for i in batch]
         max_matrix_len = max([i.shape[0] for i in label_embed])  # 矩阵最大长度
         final_label_embed = torch.zeros(len(batch), max_matrix_len, max_matrix_len, dtype=torch.long)
-        for i, m in enumerate(label_embed):
-            s, e = m.shape
-            final_label_embed[i][:s, :e] = m
+        final_mask_embed = torch.zeros(len(batch), max_matrix_len, max_matrix_len, dtype=torch.long)
+        for i, label in enumerate(label_embed):
+            s, e = label.shape
+            final_label_embed[i][:s, :e] = label
+
+            mask = mask_embed[i]
+            assert mask.shape == (s, e)
+            final_mask_embed[i][:s, :e] = mask
 
         # batch_size, sequence_length equal.
-        assert text_embed.shape[:2] == final_label_embed.shape[:2]
-        return text_embed.to(self.device), final_label_embed.to(self.device)
+        assert text_embed.shape[:2] == final_label_embed.shape[:2] == final_mask_embed.shape[:2]
+        return text_embed.to(self.device), final_label_embed.to(self.device), final_mask_embed.to(self.device)
 
     def to_dataloader(self, ):
         return DataLoader(self, batch_size=self.batch_size, shuffle=self.shuffle, collate_fn=self.collate_fn)

@@ -132,18 +132,15 @@ class BiaffineTransformerDep(object):
         total_loss = 0
 
         for batch in tqdm(train, desc='Fit'):
-            subwords, label_mask = batch
+            subwords, label_mask, mask = batch
             y_pred = self.model(subwords=subwords)
-            loss = self.compute_loss(y_pred, label_mask, criterion)
+            loss = self.compute_loss(y_pred, label_mask, criterion, mask)
             loss.backward()
             total_loss += loss.item()
             self.step(optimizer=optimizer, scheduler=scheduler)
         return total_loss
 
-    def compute_loss(self, y_pred, y_true, criterion):
-        mask = y_true.not_equal(0)
-        mask[:, 0, 0] = False
-
+    def compute_loss(self, y_pred, y_true, criterion, mask):
         y_pred = y_pred.view(-1, y_pred.shape[-1])
         y_true = y_true.view(-1)
         loss = criterion(y_pred, y_true)
@@ -162,9 +159,9 @@ class BiaffineTransformerDep(object):
         self.model.eval()
         metrics = Metrics()
         for batch in tqdm(dev, desc='Eval'):
-            subwords, label_mask = batch
+            subwords, label_mask, mask = batch
             y_pred = self.model(subwords=subwords)
-            metrics.step(y_pred=y_pred, y_true=label_mask)
+            metrics.step(y_pred=y_pred, y_true=label_mask, mask=mask)
         return metrics.summary()
 
     def save_weights(self, save_path):

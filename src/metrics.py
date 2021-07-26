@@ -14,12 +14,8 @@ class Metrics(object):
         self.f1 = 0.
         self.steps = 0
 
-    def step(self, y_pred, y_true):
+    def step(self, y_pred, y_true, mask):
         self.steps += 1
-        #
-        mask = y_true.not_equal(0)
-        mask[:, 0, 0] = False
-
         y_pred = y_pred.argmax(-1) * mask
 
         y_pred = y_pred.view(-1).to('cpu')
