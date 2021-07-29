@@ -61,7 +61,7 @@ def encoder_texts(texts: List[List[str]], tokenizer: BertTokenizerFast):
         if max_len > max_word_len:
             max_word_len = max_len
 
-    matrix = torch.zeros(len(texts), max([len(t) for t in texts]), max_word_len)
+    matrix = torch.zeros(len(texts), max([len(t) for t in texts]), max_word_len, dtype=torch.long)
 
     for index, input_ids in enumerate(texts_input_ids):
         w, h = input_ids.shape
