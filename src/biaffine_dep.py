@@ -3,7 +3,6 @@
 import math
 import os
 import random
-from collections import defaultdict
 from typing import Optional, Union
 
 import numpy as np
@@ -52,8 +51,7 @@ class BiaffineTransformerDep(object):
         :param weight_decay:
         :return:
         """
-        if isinstance(warmup_steps, float):
-            assert 0 < warmup_steps < 1
+        if warmup_steps <= 1:
             warmup_steps = int(num_training_steps * warmup_steps)
         # Prepare optimizer and schedule (linear warmup and decay)
         no_decay = ["bias", "LayerNorm.weight"]
@@ -93,19 +91,19 @@ class BiaffineTransformerDep(object):
         self.tokenizer = tokenizer
         return tokenizer
 
-    def fit(self, train, dev, transformer: str, epoch: int = 1000, lr=1e-5, batch_size=64):
+    def fit(self, train, dev, transformer: str, epoch: int = 1000, lr=1e-5, batch_size=64, hidden_size=300):
         self.set_seed()
 
         self.get_transformer(transformer=transformer)
         train_dataloader = self.build_dataloader(file=train, shuffle=True, batch_size=batch_size)
         dev_dataloader = self.build_dataloader(file=dev, shuffle=False, batch_size=batch_size)
 
-        self.build_model(transformer=transformer, n_labels=len(get_labels()) + 1)
+        self.build_model(transformer=transformer, n_labels=len(get_labels()) + 1, hidden_size=hidden_size)
 
         criterion = self.build_criterion()
 
         optimizer, scheduler = self.build_optimizer(
-            warmup_steps=0.1, num_training_steps=len(train_dataloader) * epoch,
+            warmup_steps=1, num_training_steps=len(train_dataloader) * epoch,
             lr=lr
         )
         return self.fit_loop(train_dataloader, dev_dataloader, epoch=epoch, criterion=criterion, optimizer=optimizer,
