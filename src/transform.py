@@ -5,6 +5,7 @@ import os
 from typing import Dict, List, Union
 
 import torch
+from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import Dataset, DataLoader
 from transformers import BertTokenizerFast, AutoTokenizer
 
@@ -50,26 +51,22 @@ def get_labels(train_file: str = TRAIN_FILE):
 
 
 def encoder_texts(texts: List[List[str]], tokenizer: BertTokenizerFast):
-    # 句子最大长度 # FIXME: len(max_seq_len)超过bert限制长度没限制
-    max_seq_len = max([len(i) for i in texts])
-    # 统计句子中最大的词长度, ignore cls
-    fix_len = max([max([len(word) for word in text[1:]]) for text in texts])
-
-    pad_index = tokenizer.pad_token_id
-
-    texts_matrix = []
+    max_word_len = 0
+    texts_input_ids = []
     for text in texts:
-        text_matrix = []
-        tmp = tokenizer.batch_encode_plus(text, add_special_tokens=False)
-        # padding到句子最大长度
-        tmp_input_ids = tmp['input_ids'] + [[pad_index]] * (max_seq_len - len(text))
-        for input_ids in tmp_input_ids:
-            # padding到词最大长度
-            pad_input_ids = input_ids + (fix_len - len(input_ids)) * [pad_index]
-            text_matrix.append(pad_input_ids)
-        texts_matrix.append(text_matrix)
-    # 获取到subwords matrix.
-    return torch.tensor(texts_matrix, dtype=torch.long)
+        input_ids = tokenizer.batch_encode_plus(text, add_special_tokens=False)['input_ids']
+        texts_input_ids.append(pad_sequence([torch.tensor(i) for i in input_ids], batch_first=True))
+
+        max_len = max([len(i) for i in input_ids])
+        if max_len > max_word_len:
+            max_word_len = max_len
+
+    matrix = torch.zeros(len(texts), max([len(t) for t in texts]), max_word_len)
+
+    for index, input_ids in enumerate(texts_input_ids):
+        w, h = input_ids.shape
+        matrix[index][:w, :h] = input_ids
+    return matrix
 
 
 class DepDataSet(Dataset):
