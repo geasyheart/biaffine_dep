@@ -17,6 +17,7 @@ from src.metrics import Metrics
 from src.model import BiaffineDepModel
 from src.transform import DepDataSet, get_labels
 from src.utils import logger
+from torch.optim import lr_scheduler
 
 
 class BiaffineTransformerDep(object):
@@ -66,9 +67,11 @@ class BiaffineTransformerDep(object):
             },
         ]
         optimizer = AdamW(optimizer_grouped_parameters, lr=lr)
+        
         scheduler = get_linear_schedule_with_warmup(
             optimizer, num_warmup_steps=warmup_steps, num_training_steps=num_training_steps
         )
+        #scheduler = lr_scheduler.ExponentialLR(optimizer, gamma=0.9999)
         return optimizer, scheduler
 
     @staticmethod
@@ -87,11 +90,11 @@ class BiaffineTransformerDep(object):
     def get_transformer(self, transformer: str):
         if self.tokenizer:
             return self.tokenizer
-        tokenizer = BertTokenizer.from_pretrained(transformer)
+        tokenizer = AutoTokenizer.from_pretrained(transformer)
         self.tokenizer = tokenizer
         return tokenizer
 
-    def fit(self, train, dev, transformer: str, epoch: int = 1000, lr=1e-5, batch_size=64, hidden_size=300):
+    def fit(self, train, dev, transformer: str, epoch: int = 5000, lr=1e-5, batch_size=64, hidden_size=300):
         self.set_seed()
 
         self.get_transformer(transformer=transformer)
@@ -103,7 +106,7 @@ class BiaffineTransformerDep(object):
         criterion = self.build_criterion()
 
         optimizer, scheduler = self.build_optimizer(
-            warmup_steps=1, num_training_steps=len(train_dataloader) * epoch,
+            warmup_steps=0.2, num_training_steps=len(train_dataloader) * epoch,
             lr=lr
         )
         return self.fit_loop(train_dataloader, dev_dataloader, epoch=epoch, criterion=criterion, optimizer=optimizer,
@@ -124,6 +127,7 @@ class BiaffineTransformerDep(object):
                 max_f1 = f1
                 logger.info(f'Epoch {epoch} save max f1 {f1} model')
                 self.save_weights(save_path=os.path.join(MODEL_PATH, 'max_f1.pt'))
+            logger.info(f'Epoch {epoch} f1 value: {f1}, loss value: {total_loss}, lr: {scheduler.get_last_lr()[0]:.4e}')
 
     def fit_dataloader(self, train, criterion, optimizer, scheduler):
         self.model.train()
@@ -175,17 +179,18 @@ class BiaffineTransformerDep(object):
             self.model.module.load_state_dict(torch.load(save_path))
 
     @torch.no_grad()
-    def predict(self, test, transformer: str, model_path: str):
+    def predict(self, test, transformer: str, model_path: str, hidden_size=300):
         self.get_transformer(transformer=transformer)
         if self.model is None:
-            self.build_model(transformer=transformer, n_labels=len(get_labels()) + 1)
+            self.build_model(transformer=transformer, n_labels=len(get_labels()) + 1, hidden_size=hidden_size)
             self.load_weights(save_path=model_path)
             self.model.eval()
 
         test_dataloader = self.build_dataloader(file=test, shuffle=False, batch_size=1)
 
         for batch in test_dataloader:
-            subwords, label_mask = batch
+            subwords, label_mask, mask = batch
             y_pred = self.model(subwords=subwords)
             print('here')
+
 

@@ -3,7 +3,7 @@
 import torch
 from torch import nn
 from torch.nn.utils.rnn import pad_sequence
-from transformers import AlbertForMaskedLM, BertTokenizer
+from transformers import AlbertForMaskedLM, BertTokenizer, AutoModel
 
 from src.model.scalar_mix import ScalarMix
 
@@ -44,7 +44,7 @@ class TransformerEmbedding(nn.Module):
         super().__init__()
 
         from transformers import AutoConfig
-        self.transformer = AlbertForMaskedLM.from_pretrained(
+        self.transformer = AutoModel.from_pretrained(
             model,
             config=AutoConfig.from_pretrained(
                 model,
@@ -131,3 +131,4 @@ class TransformerEmbedding(nn.Module):
 
 if __name__ == '__main__':
     pass
+

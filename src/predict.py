@@ -11,6 +11,7 @@ model_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 's
 
 dep.predict(
     TEST_FILE,
-    transformer='voidful/albert_chinese_tiny',
-    model_path=model_path
+    transformer='hfl/chinese-electra-180g-small-discriminator',
+    model_path=model_path,
+    hidden_size=300
 )

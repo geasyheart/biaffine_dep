@@ -8,6 +8,9 @@ dep = BiaffineTransformerDep()
 dep.fit(
     train=TRAIN_FILE,
     dev=DEV_FILE,
-    transformer='voidful/albert_chinese_tiny',
-    batch_size=64,
+    transformer='hfl/chinese-electra-180g-small-discriminator',
+    batch_size=32,
+    hidden_size=300,
+    lr=1e-3,
 )
+
