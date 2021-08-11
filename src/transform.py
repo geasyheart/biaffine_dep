@@ -50,7 +50,7 @@ def get_labels(train_file: str = TRAIN_FILE):
     return label_map
 
 
-def encoder_texts(texts: List[List[str]], tokenizer: BertTokenizerFast):
+def encoder_texts(texts: List[List[str]], tokenizer: BertTokenizerFast, max_sequence_len=256):
     max_word_len = 0
     texts_input_ids = []
     for text in texts:
@@ -61,7 +61,7 @@ def encoder_texts(texts: List[List[str]], tokenizer: BertTokenizerFast):
         if max_len > max_word_len:
             max_word_len = max_len
 
-    matrix = torch.zeros(len(texts), max([len(t) for t in texts]), max_word_len, dtype=torch.long)
+    matrix = torch.zeros(len(texts), max_sequence_len, max_word_len, dtype=torch.long)
 
     for index, input_ids in enumerate(texts_input_ids):
         w, h = input_ids.shape
@@ -71,10 +71,11 @@ def encoder_texts(texts: List[List[str]], tokenizer: BertTokenizerFast):
 
 class DepDataSet(Dataset):
     def __init__(self, file: str, batch_size: int = 32, shuffle: bool = False,
-                 tokenizer: Union[str, AutoTokenizer] = '',
+                 tokenizer: Union[str, AutoTokenizer] = '', max_len=256,
                  device: torch.device = 'cpu'):
         self.file = file
         self.batch_size = batch_size
+        self.max_len = max_len
 
         self.shuffle = shuffle
         self.tokenizer = AutoTokenizer.from_pretrained(tokenizer) if isinstance(tokenizer, str) else tokenizer
@@ -86,31 +87,32 @@ class DepDataSet(Dataset):
 
     def __getitem__(self, item):
         sent = self.data[item]
-        # cls as bos
-        arc_sent = ['[CLS]', *sent['FORM']]
-        arc_head = [self.tokenizer.pad_token_id, *sent['HEAD']]
-        arc_dep = [sent['DEPREL'][0], *sent['DEPREL']]
+        # cls as bos, 变成一个定长问题,如果超出256范围就会报错
+        arc_sent = ['[CLS]', *sent['FORM']][:self.max_len]
+        arc_head = [self.tokenizer.pad_token_id, *sent['HEAD']][:self.max_len]
+        arc_dep = [sent['DEPREL'][0], *sent['DEPREL']][:self.max_len]
+
         arc_dep_ids = [self.label_map[i] for i in arc_dep]
-        # FIXME: len(arc_sent)超过bert限制长度没限制
+
         sen_len = len(arc_sent)
         matrix = torch.zeros(sen_len, sen_len)
 
         for cur_index, target_index in enumerate(arc_head):
             matrix[cur_index, target_index] = arc_dep_ids[cur_index]
-        mask = torch.zeros(sen_len, sen_len)
-        mask[1:, 1:] = 1  # ignore root
+        mask = torch.ones(sen_len, sen_len)
+        mask[0, 0] = 0  # ignore root
         return arc_sent, matrix, mask
 
     def __len__(self):
         return len(self.data)
 
     def collate_fn(self, batch):
-        text_embed = encoder_texts([i[0] for i in batch], tokenizer=self.tokenizer)
+        text_embed = encoder_texts([i[0] for i in batch], tokenizer=self.tokenizer, max_sequence_len=self.max_len)
         label_embed = [i[1] for i in batch]
         mask_embed = [i[2] for i in batch]
-        max_matrix_len = max([i.shape[0] for i in label_embed])  # 矩阵最大长度
-        final_label_embed = torch.zeros(len(batch), max_matrix_len, max_matrix_len, dtype=torch.long)
-        final_mask_embed = torch.zeros(len(batch), max_matrix_len, max_matrix_len, dtype=torch.long)
+
+        final_label_embed = torch.zeros(len(batch), self.max_len, self.max_len, dtype=torch.long)
+        final_mask_embed = torch.zeros(len(batch), self.max_len, self.max_len, dtype=torch.long)
         for i, label in enumerate(label_embed):
             s, e = label.shape
             final_label_embed[i][:s, :e] = label
@@ -128,7 +130,7 @@ class DepDataSet(Dataset):
 
 
 if __name__ == '__main__':
-    d = DepDataSet(file=TRAIN_FILE, batch_size=2, tokenizer='ckiplab/albert-tiny-chinese').to_dataloader()
+    d = DepDataSet(file=TRAIN_FILE, batch_size=32, tokenizer='ckiplab/albert-tiny-chinese').to_dataloader()
 
     for i in d:
         print(i)

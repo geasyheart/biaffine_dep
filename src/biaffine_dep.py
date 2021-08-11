@@ -82,9 +82,10 @@ class BiaffineTransformerDep(object):
         # ^^ safe to call this function even if cuda is not available
         torch.cuda.manual_seed_all(seed)
 
-    def build_dataloader(self, file: str, batch_size: int = 32, shuffle: bool = False):
+    def build_dataloader(self, file: str, batch_size: int = 32, shuffle: bool = False, max_len=256):
         return DepDataSet(file=file, batch_size=batch_size, shuffle=shuffle,
                           tokenizer=self.tokenizer,
+                          max_len=max_len,
                           device=self.device).to_dataloader()
 
     def get_transformer(self, transformer: str):
@@ -94,12 +95,12 @@ class BiaffineTransformerDep(object):
         self.tokenizer = tokenizer
         return tokenizer
 
-    def fit(self, train, dev, transformer: str, epoch: int = 5000, lr=1e-5, batch_size=64, hidden_size=300):
+    def fit(self, train, dev, transformer: str, epoch: int = 5000, lr=1e-5, batch_size=64, hidden_size=256):
         self.set_seed()
 
         self.get_transformer(transformer=transformer)
-        train_dataloader = self.build_dataloader(file=train, shuffle=True, batch_size=batch_size)
-        dev_dataloader = self.build_dataloader(file=dev, shuffle=False, batch_size=batch_size)
+        train_dataloader = self.build_dataloader(file=train, shuffle=True, batch_size=batch_size, max_len=hidden_size)
+        dev_dataloader = self.build_dataloader(file=dev, shuffle=False, batch_size=batch_size, max_len=hidden_size)
 
         self.build_model(transformer=transformer, n_labels=len(get_labels()) + 1, hidden_size=hidden_size)
 
@@ -179,7 +180,7 @@ class BiaffineTransformerDep(object):
             self.model.module.load_state_dict(torch.load(save_path))
 
     @torch.no_grad()
-    def predict(self, test, transformer: str, model_path: str, hidden_size=300):
+    def predict(self, test, transformer: str, model_path: str, hidden_size=256):
         self.get_transformer(transformer=transformer)
         if self.model is None:
             self.build_model(transformer=transformer, n_labels=len(get_labels()) + 1, hidden_size=hidden_size)
