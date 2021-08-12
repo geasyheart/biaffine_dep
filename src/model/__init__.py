@@ -10,7 +10,7 @@ from src.model.transformer import TransformerEmbedding
 
 
 class BiaffineDepModel(torch.nn.Module):
-    def __init__(self, transformer: str, n_arc_mlp=500, n_rel_mlp=100):
+    def __init__(self, transformer: str, n_arc_mlp=500, n_rel_mlp=100, n_out: int=None):
         super(BiaffineDepModel, self).__init__()
 
         self.encoder = TransformerEmbedding(model=transformer, n_layers=4, dropout=0.33)
@@ -21,7 +21,7 @@ class BiaffineDepModel(torch.nn.Module):
         self.rel_mlp_h = MLP(n_in=self.encoder.n_out, n_out=n_rel_mlp, dropout=0.33)
 
         self.arc_attn = Biaffine(n_in=n_arc_mlp, bias_x=True, bias_y=False)
-        self.rel_attn = Biaffine(n_in=n_rel_mlp, bias_x=True, bias_y=True)
+        self.rel_attn = Biaffine(n_in=n_rel_mlp,n_out=n_out, bias_x=True, bias_y=True)
 
     def forward(self, subwords):
         bert_out = self.encoder(subwords=subwords)

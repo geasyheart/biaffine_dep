@@ -16,7 +16,7 @@ from src.alg import eisner, mst
 from src.config import MODEL_PATH
 from src.metrics import Metrics, AttachmentMetric
 from src.model import BiaffineDepModel
-from src.transform import DepDataSet, istree
+from src.transform import DepDataSet, istree, get_labels
 from src.utils import logger
 
 
@@ -27,13 +27,12 @@ class BiaffineTransformerDep(object):
 
         self.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
-    def build_model(self, transformer: str):
-        model = BiaffineDepModel(transformer=transformer)
+    def build_model(self, transformer: str, n_out: int):
+        model = BiaffineDepModel(transformer=transformer, n_out=n_out)
         self.model = model
         if torch.cuda.device_count() > 1:
             self.model = nn.DataParallel(self.model)
         self.model.to(self.device)
-        return model
 
     def build_criterion(self):
         return torch.nn.CrossEntropyLoss()
@@ -95,7 +94,7 @@ class BiaffineTransformerDep(object):
 
     def fit(
             self, train, dev, transformer: str, epoch: int = 5000,
-            lr=1e-5, batch_size=64, hidden_size=300,
+            lr=1e-5, batch_size=64,
             warmup_steps=0.1,
     ):
         self.set_seed()
@@ -104,7 +103,7 @@ class BiaffineTransformerDep(object):
         train_dataloader = self.build_dataloader(file=train, shuffle=True, batch_size=batch_size)
         dev_dataloader = self.build_dataloader(file=dev, shuffle=False, batch_size=batch_size)
 
-        self.build_model(transformer=transformer)
+        self.build_model(transformer=transformer, n_out=len(get_labels()) + 1)
 
         criterion = self.build_criterion()
 
@@ -206,16 +205,27 @@ class BiaffineTransformerDep(object):
             self.model.module.load_state_dict(torch.load(save_path))
 
     @torch.no_grad()
-    def predict(self, test, transformer: str, model_path: str, hidden_size=300):
+    def predict(self, test, transformer: str, model_path: str):
         self.get_transformer(transformer=transformer)
         if self.model is None:
-            self.build_model(transformer=transformer)
+            self.build_model(transformer=transformer, n_out=len(get_labels()) + 1)
             self.load_weights(save_path=model_path)
             self.model.eval()
+            self.id_label_map = {v: k for k, v in get_labels().items()}
 
-        test_dataloader = self.build_dataloader(file=test, shuffle=False, batch_size=1)
+        test_dataloader = self.build_dataloader(file=test, shuffle=False, batch_size=2)
+
+        preds = {'arcs': [], 'rels': []}
 
         for batch in test_dataloader:
-            subwords, label_mask, mask = batch
-            y_pred = self.model(subwords=subwords)
-            print('here')
+            subwords, arcs, rels = batch
+            mask = subwords.ne(self.tokenizer.pad_token_id).any(-1)
+            mask[:, 0] = 0  # 忽略bos
+            lens = mask.sum(1).tolist()
+            s_arc, s_rel = self.model(subwords=subwords)
+            arc_preds, rel_preds = self.decode(s_arc, s_rel, mask)
+            preds['arcs'].extend(arc_preds[mask].split(lens))
+            preds['rels'].extend(rel_preds[mask].split(lens))
+        preds['arcs'] = [seq.tolist() for seq in preds['arcs']]
+        preds['rels'] = [[self.id_label_map[i] for i in seq.tolist()] for seq in preds['rels']]
+        return preds

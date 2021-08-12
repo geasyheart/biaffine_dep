@@ -10,7 +10,7 @@ dep.fit(
     dev=DEV_FILE,
     transformer='hfl/chinese-electra-180g-small-discriminator',
     batch_size=32,
-    hidden_size=500,
+
     lr=1e-3,
 )
 
