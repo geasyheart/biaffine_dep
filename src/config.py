@@ -9,6 +9,7 @@ DEV_FILE = os.path.join(DATA_PATH, 'dev.conllx')
 TEST_FILE = os.path.join(DATA_PATH, 'test.conllx')
 
 LABEL_MAP_FILE = os.path.join(DATA_PATH, 'label_map.json')
+TOKENIZER_MAP_FILE = os.path.join(DATA_PATH, 'vocab_map.json')
 
 
 MODEL_PATH = os.path.join(DATA_PATH, 'savepoint')

@@ -2,14 +2,13 @@
 #
 import json
 import os
-from typing import Dict, List, Union
+from typing import Dict, List
 
 import torch
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import Dataset, DataLoader
-from transformers import BertTokenizerFast, AutoTokenizer
 
-from src.config import LABEL_MAP_FILE, TRAIN_FILE
+from src.config import LABEL_MAP_FILE, TRAIN_FILE, TOKENIZER_MAP_FILE
 
 
 def read_conllx(file,
@@ -44,100 +43,95 @@ def get_labels(train_file: str = TRAIN_FILE):
 
     for index, key in enumerate(label_map.keys()):
         label_map[key] = index + 1
+
+    label_map['PAD'] = 0
     with open(LABEL_MAP_FILE, 'w', encoding='utf-8') as f:
         f.write(json.dumps(label_map, indent=2, ensure_ascii=False))
 
     return label_map
 
 
-def encoder_texts(texts: List[List[str]], tokenizer: BertTokenizerFast, max_sequence_len=256):
-    max_word_len = 0
-    texts_input_ids = []
-    for text in texts:
-        input_ids = tokenizer.batch_encode_plus(text, add_special_tokens=False)['input_ids']
-        texts_input_ids.append(pad_sequence([torch.tensor(i) for i in input_ids], batch_first=True))
-
-        max_len = max([len(i) for i in input_ids])
-        if max_len > max_word_len:
-            max_word_len = max_len
-
-    matrix = torch.zeros(len(texts), max_sequence_len, max_word_len, dtype=torch.long)
-
-    for index, input_ids in enumerate(texts_input_ids):
-        w, h = input_ids.shape
-        matrix[index][:w, :h] = input_ids
-    return matrix
-
-
 class DepDataSet(Dataset):
     def __init__(self, file: str, batch_size: int = 32, shuffle: bool = False,
-                 tokenizer: Union[str, AutoTokenizer] = '', max_len=256,
                  device: torch.device = 'cpu'):
         self.file = file
         self.batch_size = batch_size
-        self.max_len = max_len
-
         self.shuffle = shuffle
-        self.tokenizer = AutoTokenizer.from_pretrained(tokenizer) if isinstance(tokenizer, str) else tokenizer
         self.device = device
 
         self.label_map = get_labels()
 
-        self.data: List[Dict] = [i for i in read_conllx(file=file)]
+        self.data: List[Dict] = sorted([i for i in read_conllx(file=file)], key=lambda x: -len(x['FORM']))
+        self.tokenizer = self.get_tokenizer()
+
+    def get_tokenizer(self):
+        if os.path.exists(TOKENIZER_MAP_FILE):
+            with open(TOKENIZER_MAP_FILE, 'r', encoding='utf-8') as f:
+                return json.loads(f.read())
+
+        tokenizer = {'PAD': 0, 'UNK': 1}
+        for item in self.data:
+            for word in item['FORM']:
+                tokenizer.setdefault(word, len(tokenizer))
+
+        with open(TOKENIZER_MAP_FILE, 'w', encoding='utf-8') as f:
+            f.write(json.dumps(tokenizer, indent=2, ensure_ascii=False))
+        return tokenizer
 
     def __getitem__(self, item):
         sent = self.data[item]
-        # cls as bos, 变成一个定长问题,如果超出256范围就会报错
-        arc_sent = ['[CLS]', *sent['FORM']][:self.max_len]
-        arc_head = [self.tokenizer.pad_token_id, *sent['HEAD']][:self.max_len]
-        arc_dep = [sent['DEPREL'][0], *sent['DEPREL']][:self.max_len]
+        arc_sent = sent['FORM']
+        arc_head = sent['HEAD']
+        arc_dep = sent['DEPREL']
 
         arc_dep_ids = [self.label_map[i] for i in arc_dep]
 
         sen_len = len(arc_sent)
-        matrix = torch.zeros(sen_len, sen_len)
+        matrix = torch.full(size=(sen_len, sen_len), fill_value=self.label_map['pad'])
 
         for cur_index, target_index in enumerate(arc_head):
-            matrix[cur_index, target_index] = arc_dep_ids[cur_index]
-        mask = torch.ones(sen_len, sen_len)
-        mask[0, 0] = 0  # ignore root
-        return arc_sent, matrix, mask
+            if target_index == 0:
+                target_index = 1
+            matrix[cur_index, target_index - 1] = arc_dep_ids[cur_index]
+
+        # 此处尝试截断，为什么呢？一是准确率一直提不上去，各种超参也不会有大的提升，一个是矩阵太稀疏
+        # 另外lstm在处理超过100多个字符的时候准确率会往下滑，所以此处设置成128
+        # max_seq_len = 128
+        # arc_sent = arc_sent[:max_seq_len]
+        # matrix = matrix[:max_seq_len, :max_seq_len]
+        # 但是实验下来貌似影响不大
+        #
+        return torch.tensor([self.tokenizer.get(word, self.tokenizer['UNK']) for word in arc_sent],
+                            dtype=torch.long), matrix
 
     def __len__(self):
         return len(self.data)
 
     def collate_fn(self, batch):
-        text_embed = encoder_texts([i[0] for i in batch], tokenizer=self.tokenizer, max_sequence_len=self.max_len)
-        label_embed = [i[1] for i in batch]
-        mask_embed = [i[2] for i in batch]
+        texts = pad_sequence([i[0] for i in batch], batch_first=True)
+        matrix = [i[1] for i in batch]
 
-        final_label_embed = torch.zeros(len(batch), self.max_len, self.max_len, dtype=torch.long)
-        final_mask_embed = torch.zeros(len(batch), self.max_len, self.max_len, dtype=torch.long)
-        for i, label in enumerate(label_embed):
-            s, e = label.shape
-            final_label_embed[i][:s, :e] = label
+        pad_matrix = torch.full(
+            size=(len(matrix), max([i.size(0) for i in matrix]), max([i.size(0) for i in matrix])),
+            fill_value=-100,  # 对应交叉熵的ignore_index.
+            dtype=torch.long
+        )
+        pad_mask = torch.zeros(len(matrix), max([i.size(0) for i in matrix]), max([i.size(0) for i in matrix]),
+                               dtype=torch.long)
 
-            mask = mask_embed[i]
-            assert mask.shape == (s, e)
-            final_mask_embed[i][:s, :e] = mask
-
-        # batch_size, sequence_length equal.
-        assert text_embed.shape[:2] == final_label_embed.shape[:2] == final_mask_embed.shape[:2]
-        return text_embed.to(self.device), final_label_embed.to(self.device), final_mask_embed.to(self.device)
+        for index, m in enumerate(matrix):
+            a, b = m.shape
+            assert a == b
+            pad_matrix[index][:a, :b] = m
+            pad_mask[index][:a, :b] = 1
+        return texts.to(self.device), pad_matrix.to(self.device), pad_mask.to(self.device)
 
     def to_dataloader(self, ):
         return DataLoader(self, batch_size=self.batch_size, shuffle=self.shuffle, collate_fn=self.collate_fn)
 
 
 if __name__ == '__main__':
-    d = DepDataSet(file=TRAIN_FILE, batch_size=32, tokenizer='ckiplab/albert-tiny-chinese').to_dataloader()
+    d = DepDataSet(file=TRAIN_FILE, batch_size=32).to_dataloader()
 
     for i in d:
         print(i)
-
-    # texts = [
-    #     ['我', '爱中国'],
-    #     ['我', '爱', '中国']
-    # ]
-    # tokenizer = AutoTokenizer.from_pretrained('ckiplab/albert-tiny-chinese')
-    # print(encoder_texts(texts, tokenizer))

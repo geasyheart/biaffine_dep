@@ -3,3 +3,4 @@ __pycache__/
 *.py[c|o]
 *.log
 *.pt
+vocab_map.json
