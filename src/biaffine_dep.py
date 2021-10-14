@@ -117,13 +117,13 @@ class BiaffineTransformerDep(object):
     def fit_loop(self, train, dev, epoch, criterion, optimizer, scheduler):
         min_loss = math.inf
         max_metric = 0
-        for epoch in tqdm(range(1, epoch + 1)):
+        for _epoch in range(1, epoch + 1):
             total_loss, metric = self.fit_dataloader(
                 train=train, criterion=criterion,
                 optimizer=optimizer, scheduler=scheduler
             )
             if total_loss < min_loss:
-                logger.info(f'Epoch {epoch} save min loss {total_loss} model')
+                logger.info(f'Epoch {_epoch} save min loss {total_loss} model')
                 min_loss = total_loss
                 self.save_weights(save_path=os.path.join(MODEL_PATH, 'min_loss.pt'))
 
@@ -131,7 +131,7 @@ class BiaffineTransformerDep(object):
             if metric > max_metric:
                 max_metric = metric
                 self.save_weights(save_path=os.path.join(MODEL_PATH, 'max_score.pt'))
-            logger.info(f'Epoch {epoch} {metric}, loss value: {total_loss}, lr: {scheduler.get_last_lr()[0]:.4e}')
+            logger.info(f'Epoch {_epoch} {metric}, loss value: {total_loss}, lr: {scheduler.get_last_lr()[0]:.4e}')
 
     def fit_dataloader(self, train, criterion, optimizer, scheduler):
         self.model.train()

@@ -31,7 +31,24 @@ class BiaffineDepModel(torch.nn.Module):
         arc_h = self.arc_mlp_h(bert_out)
         rel_d = self.rel_mlp_d(bert_out)
         rel_h = self.rel_mlp_h(bert_out)
-
+        # NOTE: 这里不应该这么算，但是后续在进行计算的时候，s_arc[mask]，又会把下面的0给mask掉，所以最终结果不影响
+        # s_arc[-1]
+        # Out[25]:
+        # tensor([[0., 0., 0., 0., 0., -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf],
+        #         [0., 0., 0., 0., 0., -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf],
+        #         [0., 0., 0., 0., 0., -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf],
+        #         [0., 0., 0., 0., 0., -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf],
+        #         [0., 0., 0., 0., 0., -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf],
+        #         [0., 0., 0., 0., 0., -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf],
+        #         [0., 0., 0., 0., 0., -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf],
+        #         [0., 0., 0., 0., 0., -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf],
+        #         [0., 0., 0., 0., 0., -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf],
+        #         [0., 0., 0., 0., 0., -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf],
+        #         [0., 0., 0., 0., 0., -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf],
+        #         [0., 0., 0., 0., 0., -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf],
+        #         [0., 0., 0., 0., 0., -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf],
+        #         [0., 0., 0., 0., 0., -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf]],
+        #        device='cuda:0', grad_fn= < SelectBackward >)
         s_arc = self.arc_attn(arc_d, arc_h).masked_fill_(~mask.unsqueeze(1), -math.inf)
         s_rel = self.rel_attn(rel_d, rel_h).permute(0, 2, 3, 1)
 
