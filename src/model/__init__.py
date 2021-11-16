@@ -31,25 +31,19 @@ class BiaffineDepModel(torch.nn.Module):
         arc_h = self.arc_mlp_h(bert_out)
         rel_d = self.rel_mlp_d(bert_out)
         rel_h = self.rel_mlp_h(bert_out)
-        # NOTE: 这里不应该这么算，但是后续在进行计算的时候，s_arc[mask]，又会把下面的0给mask掉，所以最终结果不影响
-        # s_arc[-1]
-        # Out[25]:
-        # tensor([[0., 0., 0., 0., 0., -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf],
-        #         [0., 0., 0., 0., 0., -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf],
-        #         [0., 0., 0., 0., 0., -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf],
-        #         [0., 0., 0., 0., 0., -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf],
-        #         [0., 0., 0., 0., 0., -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf],
-        #         [0., 0., 0., 0., 0., -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf],
-        #         [0., 0., 0., 0., 0., -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf],
-        #         [0., 0., 0., 0., 0., -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf],
-        #         [0., 0., 0., 0., 0., -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf],
-        #         [0., 0., 0., 0., 0., -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf],
-        #         [0., 0., 0., 0., 0., -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf],
-        #         [0., 0., 0., 0., 0., -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf],
-        #         [0., 0., 0., 0., 0., -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf],
-        #         [0., 0., 0., 0., 0., -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf]],
-        #        device='cuda:0', grad_fn= < SelectBackward >)
-        s_arc = self.arc_attn(arc_d, arc_h).masked_fill_(~mask.unsqueeze(1), -math.inf)
+        # 再次更新，此次有两个点可以注意的哦
+        # 1. 在计算s_arc的时候,mask在第0个位置参与了模型计算，只是在计算loss的时候才忽略掉了，所以这是一个小改动点
+        # 应更改成如下：
+        # mask[:, 0] = 0
+        # self.arc_attn(arc_d, arc_h).masked_fill_(~mask.unsqueeze(1), -math.inf)
+
+        # 2. 关于s_arc计算，masked_fill_这里不方便理解，换种方式会更容易
+        arc_v = self.arc_attn(arc_d, arc_h)
+        s_arc = arc_v.masked_fill_(~mask.unsqueeze(1), -math.inf)
+
+        # friendly_s_arc = arc_v.masked_fill_(~(mask.unsqueeze(1) & mask.unsqueeze(2)), -math.inf)
+        # assert (s_arc == friendly_s_arc).all()
+
         s_rel = self.rel_attn(rel_d, rel_h).permute(0, 2, 3, 1)
 
         return s_arc, s_rel

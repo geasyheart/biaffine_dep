@@ -163,6 +163,36 @@ class BiaffineTransformerDep(object):
         return arc_preds, rel_preds
 
     def compute_loss(self, s_arc, s_rel, arcs, rels, mask, criterion):
+        """
+        方便理解：
+
+        假设
+        s_arc.shape = (2, 10, 10)
+        s_rel.shape = (2, 10, 10, 47)
+
+        s_arc[mask], s_rel[mask]后为：
+        s_arc.shape = (14, 10)
+        s_rel.shape = (14, 10, 47)
+
+        # 第一点
+        计算s_arc loss，就为获取当前词和句子其他词中权重最大的一个，表示最可能的依存，即：
+        s_arc.argmax(-1)
+        由于依存的种类为句子的长度，所以此处是一个变长的分类问题，即s_arc.size(-1)是不固定的
+
+        这一点和其他的分类稍微有点不同（不同点在于为降维到num_labels,比如768 -> 5个分类，这个5在任务开始时就已经固定了）
+
+        # 第二点
+        s_rel第二维(即：10)，表示当前词和句子中指定的index存在依存（即s_rel[torch.arange(len(arcs))], arcs），
+        获取到后，就变成了一个传统的分类问题，表示当前词和指定词有47种依存关系，要获取最大的那个最为最终结果。
+
+        :param s_arc:
+        :param s_rel:
+        :param arcs:
+        :param rels:
+        :param mask:
+        :param criterion:
+        :return:
+        """
         s_arc, arcs = s_arc[mask], arcs[mask]
         s_rel, rels = s_rel[mask], rels[mask]
         s_rel = s_rel[torch.arange(len(arcs)), arcs]  # == s_rel[:, arcs] 表示取第二维的第几行
@@ -216,16 +246,24 @@ class BiaffineTransformerDep(object):
         test_dataloader = self.build_dataloader(file=test, shuffle=False, batch_size=2)
 
         preds = {'arcs': [], 'rels': []}
-
-        for batch in test_dataloader:
+        # criterion = nn.CrossEntropyLoss()
+        # metric = AttachmentMetric()
+        # total_loss = 0
+        for batch in tqdm(test_dataloader):
             subwords, arcs, rels = batch
             mask = subwords.ne(self.tokenizer.pad_token_id).any(-1)
             mask[:, 0] = 0  # 忽略bos
             lens = mask.sum(1).tolist()
             s_arc, s_rel = self.model(subwords=subwords)
+            # loss = self.compute_loss(s_arc, s_rel, arcs, rels, mask, criterion)
+            # total_loss += loss.item()
             arc_preds, rel_preds = self.decode(s_arc, s_rel, mask)
+            # metric(arc_preds, rel_preds, arcs, rels, mask)
+
             preds['arcs'].extend(arc_preds[mask].split(lens))
             preds['rels'].extend(rel_preds[mask].split(lens))
+        # print(metric)
+        # print(total_loss / len(test_dataloader))
         preds['arcs'] = [seq.tolist() for seq in preds['arcs']]
         preds['rels'] = [[self.id_label_map[i] for i in seq.tolist()] for seq in preds['rels']]
         return preds
